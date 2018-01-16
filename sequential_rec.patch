@@ -1,0 +1,187 @@
+Binary files /tmp/TransRec/sequential_rec/gzstream/libgzstream.a and ./sequential_rec2/gzstream/libgzstream.a differ
+diff -ruB --new-file /tmp/TransRec/sequential_rec/parse.go ./sequential_rec2/parse.go
+--- /tmp/TransRec/sequential_rec/parse.go	1970-01-01 09:00:00.000000000 +0900
++++ ./sequential_rec2/parse.go	2018-01-10 21:27:50.703152127 +0900
+@@ -0,0 +1,63 @@
++package main
++
++import (
++	"fmt"
++	"io"
++	"net/http"
++
++	"golang.org/x/net/html"
++)
++
++func isTitleElement(n *html.Node) bool {
++	return n.Type == html.ElementNode && n.Data == "title"
++}
++
++func traverse(n *html.Node) (string, bool) {
++	if isTitleElement(n) {
++		return n.FirstChild.Data, true
++	}
++
++	for c := n.FirstChild; c != nil; c = c.NextSibling {
++		result, ok := traverse(c)
++		if ok {
++			return result, ok
++		}
++	}
++
++	return "", false
++}
++
++func GetHtmlTitle(r io.Reader) (string, bool) {
++	doc, err := html.Parse(r)
++	if err != nil {
++		panic("Fail to parse html")
++	}
++
++	return traverse(doc)
++}
++
++func getInput() []string {
++	iIds := make([]string, 50)
++	for i := 0; i < 50; i++ {
++		_, err := fmt.Scanf("%s %s %s %s", new(string), new(string), &iIds[i], new(string))
++		if err != nil {
++			panic("Fail to scan")
++		}
++	}
++	return iIds
++}
++
++func main() {
++	iIds := getInput()
++	for i, iId := range iIds {
++		resp, err := http.Get("https://plus.google.com/" + iId)
++		if err != nil {
++			fmt.Printf("Rank %d: maybe 404\n", i)
++			continue
++		}
++		defer resp.Body.Close()
++
++		title, _ := GetHtmlTitle(resp.Body)
++		fmt.Printf("Rank %d: %s\n", i, title)
++	}
++}
+diff -ruB --new-file /tmp/TransRec/sequential_rec/src/main.cpp ./sequential_rec2/src/main.cpp
+--- /tmp/TransRec/sequential_rec/src/main.cpp	2017-07-21 15:54:52.000000000 +0900
++++ ./sequential_rec2/src/main.cpp	2018-01-11 06:46:28.558537114 +0900
+@@ -96,15 +96,24 @@
+ 	md.cleanUp();
+ }
+ 
++void infer_TransRec(corpus* corp, int K, double lambda, double relation_reg, double bias_reg, int iterations, const char* model_path) 
++{
++	TransRec md(corp, K, lambda, relation_reg, bias_reg);
++	md.init();
++	md.loadModel("/home/nek/Downloads/paper/Translation_Based_Recommendation/TransRec/sequential_rec/GoogleLocal_clean2_1000__TransRec__K_10_lambda_0.100000_relationReg_0.100000_biasReg_0.010000.txt");
++	md.my_prediction50();
++	md.cleanUp();
++}
++
+ 
+ // Amazon data can be downloaded from http://jmcauley.ucsd.edu/data/amazon/ (under "Per-category files").
+ // You can run the program like ./train reviews_Automotive.simple.gz 5 5 10 0.1 0.1 0.01 0 10000 my_model_path_blah_blah
+ int main(int argc, char** argv)
+ {
+ 	srand(0);
+-	
++
+ 	if (argc != 11) {
+-		printf(" Parameters as following: \n");
++	        printf(" Parameters as following: \n");
+ 		printf(" 1. Click triples path \n");
+ 		printf(" 2. user min \n");
+ 		printf(" 3. item min \n");
+@@ -144,9 +153,11 @@
+ 	// go_FPMC(&corp, K, K, lambda, bias_reg, iter, model_path);
+ 	// go_HRM_max(&corp, K, lambda, bias_reg, iter, model_path);
+ 	// go_HRM_avg(&corp, K, lambda, bias_reg, iter, model_path);
+-	go_PRME(&corp, K, K, alpha, lambda, iter, model_path);
++	// go_PRME(&corp, K, K, alpha, lambda, iter, model_path);
+ 	// go_TransRec(&corp, K, lambda, relation_reg, bias_reg, iter, model_path);
++	infer_TransRec(&corp, K, lambda, relation_reg, bias_reg, iter, model_path);
+ 
+ 	printf("}\n");
++
+ 	return 0;
+ }
+diff -ruB --new-file /tmp/TransRec/sequential_rec/src/model.cpp ./sequential_rec2/src/model.cpp
+--- /tmp/TransRec/sequential_rec/src/model.cpp	2017-07-21 10:12:50.000000000 +0900
++++ ./sequential_rec2/src/model.cpp	2018-01-16 15:13:14.751946330 +0900
+@@ -296,4 +296,58 @@
+ 	printf("#Users = %d, TEST:  AUC = %f, MRR = %f, HR@%d = %f\n", num_user, test_auc, test_mrr, topN, test_hr);
+ 
+ 	valid = val_hr; // return hit rate on the validation set
+-}
+\ No newline at end of file
++}
++
++// my implementation
++void model::my_prediction() {
++  int my_uId = corp->userIds["100000010000000000000"];
++  int my_iId = corp->itemIds["118207395887120689851"];
++  int minItem = 0;
++  int maxItem = 0;
++  double minPred = 10000000000000000000000000.0L;
++  double maxPred = -1.0L;
++  for (int j = 0; j < nItems; j++) {
++    double pred = prediction(my_uId, my_iId, j);
++    if (pred < minPred) {
++      minPred = pred;
++      minItem = j;
++    }
++    if (pred > maxPred) {
++      maxPred = pred;
++      maxItem = j;
++    }
++  }
++  std::cout << "uId " << my_uId << " is " << corp->rUserIds[my_uId] << std::endl;
++  std::cout << "iId " << my_iId << " is " << corp->rItemIds[my_iId] << std::endl;
++  std::cout << "max: " << maxItem << " itemID = " << corp->rItemIds[maxItem] << " pred = " << maxPred << std::endl;
++  std::cout << "min: " << minItem << " itemID = " << corp->rItemIds[minItem] << " pred = " << minPred << std::endl;
++}
++
++void model::my_prediction50() {
++  // main.cpp を修正するのも忘れない
++  auto my_uId_it = corp->userIds.find("100000010000000000000");
++  auto my_iId_it = corp->itemIds.find("118207395887120689851");
++  
++  if (my_uId_it == corp->userIds.end()) {
++    cerr << "Specified user not found" << endl;
++    exit(1);
++  }
++  if (my_iId_it == corp->itemIds.end()) {
++    cerr << "Specified item not found" << endl;
++    exit(1);
++  }
++
++  int my_uId = my_uId_it->second;
++  int my_iId = my_iId_it->second;
++  set<pair<double, int>, greater<pair<double, int>>> preds;
++  for (int j = 0; j < nItems; j++) {
++    double pred = prediction(my_uId, my_iId, j);
++    preds.insert(pair<double, int>(pred, j));
++  }
++  cout << "uId " << my_uId << " is " << corp->rUserIds[my_uId] << endl;
++  cout << "iId " << my_iId << " is " << corp->rItemIds[my_iId] << endl;
++  auto it = preds.begin();
++  for (int i = 0; i < 50 || it == preds.end(); it++, i++) {
++    cout << "rank " << i << ": " << corp->rItemIds[it->second] << " (" << it->first << ")" << endl;
++  }
++}
+diff -ruB --new-file /tmp/TransRec/sequential_rec/src/model.hpp ./sequential_rec2/src/model.hpp
+--- /tmp/TransRec/sequential_rec/src/model.hpp	2017-07-21 13:45:36.000000000 +0900
++++ ./sequential_rec2/src/model.hpp	2018-01-10 20:57:56.507963917 +0900
+@@ -82,6 +82,8 @@
+ 	virtual string toString();
+ 
+ 	void MultipleMetrics(int topN, bool sample, double& valid);
++  void my_prediction();
++  void my_prediction50();
+ 
+ private:
+ 	virtual double prediction(int user, int item_prev, int item) = 0;
